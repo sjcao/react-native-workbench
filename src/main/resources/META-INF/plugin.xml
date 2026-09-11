@@ -1,0 +1,29 @@
+<!-- Plugin Configuration File. Read more: https://plugins.jetbrains.com/docs/intellij/plugin-configuration-file.html -->
+<idea-plugin>
+    <id>dev.senjucao.reactnativeworkbench</id>
+    <name>React Native Workbench</name>
+    <vendor>senjucao</vendor>
+    <description><![CDATA[
+        <p>Run, inspect and stop React Native development sessions from one IDE workbench.</p>
+        <ul><li>Separate consoles for Metro, Android, iOS and release builds.</li>
+        <li>Device and simulator selection, environment profiles and custom app directories for monorepos.</li>
+        <li>Metro cache reset, environment diagnostics, exit codes and actionable launch errors.</li>
+        <li>Compact theme-aware icon toolbar, responsive overflow menu and automatic app discovery.</li></ul>
+        <p>Requires Node.js and project-local React Native CLI dependencies. Android requires an Android SDK;
+        iOS requires macOS and Xcode. This workbench runs CLI commands; it does not provide a JavaScript breakpoint debugger.</p>
+        <p>Maintained by senjucao, based on the Apache-2.0 React Native Companion project.</p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+    <change-notes><![CDATA[
+        <p>1.0.0 — senjucao.</p>
+        <p>New workbench layout and icons, independent command sessions, stop controls,
+        Metro cache reset, environment diagnostics and improved device selection.</p>
+    ]]></change-notes>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="RN Workbench" secondary="true" anchor="bottom"
+                    icon="/icons/toolWindow.svg"
+                    factoryClass="dev.gaphunter.reactnativecompanion.ui.ReactNativeToolWindowFactory"/>
+    </extensions>
+</idea-plugin>

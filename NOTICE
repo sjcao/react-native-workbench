@@ -1,0 +1,11 @@
+React Native Workbench 1.0.0
+Modifications: 2026 senjucao.
+
+Derived from React Native Companion.
+Original copyright: 2026 Gap Hunter Labs.
+Original project: https://github.com/GapHunterLabs/react-native-companion
+Licensed under Apache License 2.0; see LICENSE.
+
+This project changes the UI, process lifecycle, plugin identity,
+publishing configuration and documentation. The original authors do not
+endorse this edition.
