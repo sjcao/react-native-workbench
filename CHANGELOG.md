@@ -2,6 +2,12 @@
 
 # React Native Workbench Changelog
 
+## [1.0.1] - 2026-09-13
+
+- Improved React Native app discovery and nested project handling.
+- Improved device output parsing and runtime error handling.
+- Improved console session behavior and related test coverage.
+
 ## [1.0.0] - 2026-09-10
 
 Maintained by senjucao, derived from React Native Companion.
