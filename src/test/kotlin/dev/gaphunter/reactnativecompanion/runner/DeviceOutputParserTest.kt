@@ -36,6 +36,17 @@ class DeviceOutputParserTest {
     }
 
     @Test
+    fun adbWarningsBeforeHeaderAreIgnored() {
+        val output = """
+            * daemon started successfully *
+            List of devices attached
+            emulator-5554	device
+        """.trimIndent()
+
+        assertEquals(listOf(AndroidDevice("emulator-5554", "device")), DeviceOutputParser.parseAdbDevices(output))
+    }
+
+    @Test
     fun parsesMultipleSimctlDevicesAcrossSections() {
         val output = """
             == Devices ==
@@ -66,6 +77,34 @@ class DeviceOutputParserTest {
     fun simctlOutputWithNoDevicesYieldsEmptyList() {
         val devices = DeviceOutputParser.parseSimctlDevices("")
         assertTrue(devices.isEmpty())
+    }
+
+    @Test
+    fun parsesSimctlJsonOnlyForAvailableIosDevices() {
+        val output = """
+            {
+              "devices": {
+                "com.apple.CoreSimulator.SimRuntime.iOS-18-6": [
+                  {"state":"Booted","isAvailable":true,"name":"iPhone 16","udid":"12345678-1234-1234-1234-123456789012"},
+                  {"state":"Shutdown","isAvailable":false,"name":"Old iPhone","udid":"87654321-4321-4321-4321-210987654321"}
+                ],
+                "com.apple.CoreSimulator.SimRuntime.tvOS-18-6": [
+                  {"state":"Shutdown","isAvailable":true,"name":"Apple TV","udid":"ABCDEF12-3456-7890-ABCD-EF1234567890"}
+                ]
+              }
+            }
+        """.trimIndent()
+
+        assertEquals(
+            listOf(IosSimulator("12345678-1234-1234-1234-123456789012", "iPhone 16", "Booted")),
+            DeviceOutputParser.parseSimctlDevices(output),
+        )
+    }
+
+    @Test
+    fun malformedDeviceJsonYieldsNoDevices() {
+        assertTrue(DeviceOutputParser.parseSimctlDevices("{not-json").isEmpty())
+        assertTrue(DeviceOutputParser.parseXcdevicePhysicalDevices("[not-json").isEmpty())
     }
 
     @Test

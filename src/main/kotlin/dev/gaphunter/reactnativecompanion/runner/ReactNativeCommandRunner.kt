@@ -65,7 +65,7 @@ object ReactNativeCommandRunner {
     }
 
     fun runSimctlListDevices(): GeneralCommandLine =
-        GeneralCommandLine("xcrun", "simctl", "list", "devices").withCharset(Charsets.UTF_8)
+        GeneralCommandLine("xcrun", "simctl", "list", "devices", "--json").withCharset(Charsets.UTF_8)
 
     fun runXcdeviceList(): GeneralCommandLine =
         GeneralCommandLine("xcrun", "xcdevice", "list").withCharset(Charsets.UTF_8)

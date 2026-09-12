@@ -38,17 +38,21 @@ object DeviceOutputParser {
      * ```
      */
     fun parseAdbDevices(output: String): List<AndroidDevice> {
-        return output.lineSequence()
-            .drop(1) // "List of devices attached" header
+        val lines = output.lineSequence().toList()
+        val header = lines.indexOfFirst { it.trim() == "List of devices attached" }
+        val deviceLines = if (header >= 0) lines.drop(header + 1) else lines
+        return deviceLines.asSequence()
             .mapNotNull { line ->
                 val parts = line.trim().split(Regex("\\s+"))
-                if (parts.size < 2 || parts[0].isEmpty()) null else AndroidDevice(parts[0], parts[1])
+                if (parts.size < 2 || parts[0].isEmpty() || parts[0].startsWith("*")) null
+                else AndroidDevice(parts[0], parts[1])
             }
             .toList()
     }
 
     /**
-     * `xcrun simctl list devices` output looks like:
+     * `xcrun simctl list devices --json` is preferred. The human-readable
+     * `xcrun simctl list devices` format remains supported as a fallback:
      * ```
      * == Devices ==
      * -- iOS 17.0 --
@@ -63,6 +67,8 @@ object DeviceOutputParser {
     private val SIMCTL_DEVICE_LINE = Regex("""^\s*(.+?)\s+\(([0-9A-Fa-f-]{36})\)\s+\((\w+)\)\s*$""")
 
     fun parseSimctlDevices(output: String): List<IosSimulator> {
+        if (output.trimStart().startsWith("{")) return parseSimctlJson(output)
+
         var iosSection = false
         return output.lineSequence()
             .mapNotNull { line ->
@@ -79,17 +85,48 @@ object DeviceOutputParser {
     }
 
     /**
+     * JSON output from `xcrun simctl list devices --json` is stable across
+     * Xcode versions and avoids relying on the human-readable table format.
+     */
+    private fun parseSimctlJson(output: String): List<IosSimulator> = try {
+        val root = JsonParser.parseString(output)
+        val devices = root.asJsonObject.get("devices")?.takeIf { it.isJsonObject }?.asJsonObject
+            ?: return emptyList()
+
+        devices.entrySet()
+            .filter { (runtime, _) -> runtime.contains(".iOS-") }
+            .flatMap { (_, values) ->
+                if (!values.isJsonArray) return@flatMap emptyList()
+                values.asJsonArray.mapNotNull { element ->
+                    if (!element.isJsonObject) return@mapNotNull null
+                    val device = element.asJsonObject
+                    val available = device.get("isAvailable")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: true
+                    val udid = device.get("udid")?.takeIf { it.isJsonPrimitive }?.asString ?: return@mapNotNull null
+                    val name = device.get("name")?.takeIf { it.isJsonPrimitive }?.asString ?: return@mapNotNull null
+                    if (!available) return@mapNotNull null
+                    IosSimulator(
+                        udid = udid,
+                        name = name,
+                        state = device.get("state")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
+                    )
+                }
+            }
+    } catch (_: RuntimeException) {
+        emptyList()
+    }
+
+    /**
      * `xcrun xcdevice list` returns JSON containing every Apple platform,
      * simulators, and remembered but currently unavailable devices. Only
      * available physical iOS/iPadOS devices are useful run-ios targets.
      */
-    fun parseXcdevicePhysicalDevices(output: String): List<IosPhysicalDevice> {
+    fun parseXcdevicePhysicalDevices(output: String): List<IosPhysicalDevice> = try {
         if (output.isBlank()) return emptyList()
 
         val root = JsonParser.parseString(output)
         if (!root.isJsonArray) return emptyList()
 
-        return root.asJsonArray.mapNotNull { element ->
+        root.asJsonArray.mapNotNull { element ->
             if (!element.isJsonObject) return@mapNotNull null
             val device = element.asJsonObject
             val simulator = device.get("simulator")?.takeIf { it.isJsonPrimitive }?.asBoolean ?: return@mapNotNull null
@@ -107,5 +144,7 @@ object DeviceOutputParser {
                 connection = device.get("interface")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty(),
             )
         }
+    } catch (_: RuntimeException) {
+        emptyList()
     }
 }

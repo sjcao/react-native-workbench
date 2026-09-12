@@ -8,11 +8,11 @@ A JetBrains IDE workbench for React Native CLI development: a compact icon toolb
 
 1. Install the plugin ZIP using Settings → Plugins → gear → Install Plugin from Disk.
 2. Open **RN Workbench** in the bottom tool-window area.
-3. The plugin identifies the root app or searches up to three directory levels for React Native apps. A single app is selected automatically; choose an app if several are found.
+3. The plugin identifies the root app, searches up to three parent levels and up to three child levels for React Native apps. A single app is selected automatically; choose an app if several are found.
 4. Devices are discovered automatically. Keep automatic selection or choose a specific target.
 5. Hover over the toolbar icons for descriptions, start Metro and run Android or iOS. Each command has its own console and exit status.
 
-The interface follows the IDE language by default: Chinese IDEs use Simplified Chinese; all other languages use English. **More actions → Advanced settings → Language** also offers explicit English and Chinese overrides. The preference is saved per project and applies after reopening the project. Select **Follow IDE language** to clear an existing override. Plugin messages are translated; output from external development tools is shown unchanged.
+The interface follows the IDE language by default: Chinese IDEs use Simplified Chinese; all other languages use English. Plugin messages are translated; output from external development tools is shown unchanged.
 
 The always-visible More menu contains cache reset, release builds, diagnostics, refresh and advanced settings. On narrow windows, run actions move into this menu. Directory and environment overrides are optional, stored locally per project/app, and default ENVFILE is never overridden automatically. Use Advanced settings to select an app directory outside the search range. Re-identify project clears the remembered directory and scans again.
 

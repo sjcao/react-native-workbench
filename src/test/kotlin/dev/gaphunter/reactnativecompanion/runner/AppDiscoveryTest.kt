@@ -55,6 +55,11 @@ class AppDiscoveryTest {
         val chosen = app("a/b/c/d")
         assertEquals(chosen.canonicalPath, AppDiscovery.resolve(temporary.root, chosen.path).single().directory)
     }
+    @Test fun projectScanIncludesParentDirectories() {
+        val workspace = app("workspace")
+        val project = File(workspace, "packages/editor").apply { mkdirs() }
+        assertEquals(workspace.canonicalPath, AppDiscovery.resolve(project, null).single().directory)
+    }
     @Test fun environmentOverridesArePerAppAndNeverGuessed() {
         assertNotEquals(AppEnvironment.key(app("one").path), AppEnvironment.key(app("two").path))
         assertNull(AppEnvironment.restore(null, listOf(".env.production")))
@@ -68,5 +73,9 @@ class AppDiscoveryTest {
         try { Files.createSymbolicLink(File(root, "linked").toPath(), outside.toPath()) }
         catch (e: Exception) { assumeNoException("Symbolic links unavailable on this host", e); return }
         assertTrue(AppDiscovery.discover(root).isEmpty())
+    }
+    @Test fun cancelledScanDoesNotWalkChildren() {
+        app("apps/mobile")
+        assertTrue(AppDiscovery.discover(temporary.root) { true }.isEmpty())
     }
 }

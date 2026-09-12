@@ -19,6 +19,8 @@ import java.awt.*
 import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.io.File
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
 
 class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
@@ -30,11 +32,13 @@ class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayou
     private var app: NativeApp? = null
     private var scanning = true
     private var refreshing = false
-    private var generation = 0
+    @Volatile private var generation = 0
+    @Volatile private var deviceRefreshGeneration = 0
     private var profiles = emptyList<String>()
     private var env: String? = null
     private var probeDetails = ""
     private var updating = false
+    private val activeProbeHandlers = ConcurrentHashMap.newKeySet<CapturingProcessHandler>()
     private val devices = JComboBox<DeviceTarget>()
     private val apps = JComboBox<NativeApp>()
     private val tabs = JTabbedPane().apply { tabLayoutPolicy = JTabbedPane.SCROLL_TAB_LAYOUT }
@@ -212,7 +216,9 @@ class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayou
         if (ignoreSaved) preferences.unsetValue(directoryKey)
         val saved = preferences.getValue(directoryKey)
         ApplicationManager.getApplication().executeOnPooledThread {
-            val found = AppDiscovery.resolve(File(project.basePath.orEmpty()), saved)
+            val found = AppDiscovery.resolve(File(project.basePath.orEmpty()), saved) {
+                disposed || request != generation
+            }
             ui {
                 if (request != generation) return@ui
                 updating = true
@@ -407,39 +413,98 @@ class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayou
 
     private fun refreshDevices() {
         if (refreshing) return
-        refreshing = true; updateState()
-        ApplicationManager.getApplication().executeOnPooledThread {
-            val found = mutableListOf<DeviceTarget>()
-            val problems = mutableListOf<String>()
-            fun probe(name: String, command: com.intellij.execution.configurations.GeneralCommandLine, parse: (String) -> List<DeviceTarget>) {
-                if (disposed) return
-                try {
-                    val result = CapturingProcessHandler(command).runProcess(10_000)
-                    if (result.isTimeout || result.exitCode != 0) problems.add(msg("probe.error", name, if (result.isTimeout) msg("probe.timeout") else result.stderr.take(1500)))
-                    else found.addAll(parse(result.stdout))
-                } catch (e: Exception) { problems.add(msg("probe.error", name, e.message.orEmpty())) }
-            }
-            probe("Android / adb", ReactNativeCommandRunner.runAdbDevices()) { text ->
-                val parsed = DeviceOutputParser.parseAdbDevices(text)
-                parsed.filterNot { it.isUsable }.forEach { problems.add(msg("device.unusable", it.serial, it.state)) }
-                parsed.filter { it.isUsable }.map { DeviceTarget(it.serial, it.serial, DeviceKind.ANDROID) }
-            }
+        refreshing = true
+        val request = ++deviceRefreshGeneration
+        updateState()
+
+        data class ProbeSpec(
+            val name: String,
+            val command: com.intellij.execution.configurations.GeneralCommandLine,
+            val parse: (String) -> List<DeviceTarget>,
+            val diagnostics: (String) -> List<String> = { emptyList() },
+        )
+        data class ProbeResult(val devices: List<DeviceTarget>, val problems: List<String>)
+
+        val specs = buildList {
+            add(ProbeSpec(
+                name = "Android / adb",
+                command = ReactNativeCommandRunner.runAdbDevices(),
+                parse = { text ->
+                    val parsed = DeviceOutputParser.parseAdbDevices(text)
+                    parsed.filter { it.isUsable }.map { DeviceTarget(it.serial, it.serial, DeviceKind.ANDROID) }
+                },
+                diagnostics = { text ->
+                    DeviceOutputParser.parseAdbDevices(text)
+                        .filterNot { it.isUsable }
+                        .map { msg("device.unusable", it.serial, it.state) }
+                },
+            ))
             if (SystemInfo.isMac) {
-                probe(msg("device.ios.simulator"), ReactNativeCommandRunner.runSimctlListDevices()) { text ->
-                    DeviceOutputParser.parseSimctlDevices(text).map { DeviceTarget(it.udid, it.name, DeviceKind.IOS_SIMULATOR, it.state) }
-                }
-                probe(msg("device.ios.physical"), ReactNativeCommandRunner.runXcdeviceList()) { text ->
-                    DeviceOutputParser.parseXcdevicePhysicalDevices(text).map { DeviceTarget(it.udid, it.name, DeviceKind.IOS_PHYSICAL) }
-                }
+                add(ProbeSpec(
+                    name = msg("device.ios.simulator"),
+                    command = ReactNativeCommandRunner.runSimctlListDevices(),
+                    parse = { text ->
+                        DeviceOutputParser.parseSimctlDevices(text).map { DeviceTarget(it.udid, it.name, DeviceKind.IOS_SIMULATOR, it.state) }
+                    },
+                ))
+                add(ProbeSpec(
+                    name = msg("device.ios.physical"),
+                    command = ReactNativeCommandRunner.runXcdeviceList(),
+                    parse = { text ->
+                        DeviceOutputParser.parseXcdevicePhysicalDevices(text).map { DeviceTarget(it.udid, it.name, DeviceKind.IOS_PHYSICAL) }
+                    },
+                ))
             }
-            ui {
-                val previousId = (devices.selectedItem as? DeviceTarget)?.id
-                devices.removeAllItems(); devices.addItem(DeviceTarget("", msg("device.auto"), DeviceKind.ANDROID))
-                found.forEach(devices::addItem)
-                found.firstOrNull { it.id == previousId }?.let { devices.selectedItem = it }
-                probeDetails = problems.joinToString("\n\n")
-                details.isVisible = problems.isNotEmpty()
-                refreshing = false; updateState()
+        }
+
+        fun probe(spec: ProbeSpec): ProbeResult {
+            if (disposed) return ProbeResult(emptyList(), emptyList())
+            val handler = CapturingProcessHandler(spec.command)
+            activeProbeHandlers.add(handler)
+            try {
+                if (disposed) {
+                    handler.destroyProcess()
+                    return ProbeResult(emptyList(), emptyList())
+                }
+                val result = handler.runProcess(10_000)
+                if (result.isTimeout || result.exitCode != 0) {
+                    return ProbeResult(
+                        emptyList(),
+                        listOf(msg("probe.error", spec.name, if (result.isTimeout) msg("probe.timeout") else result.stderr.take(1500))),
+                    )
+                }
+                val parsed = spec.parse(result.stdout)
+                return ProbeResult(parsed, spec.diagnostics(result.stdout))
+            } catch (e: Exception) {
+                return ProbeResult(emptyList(), listOf(msg("probe.error", spec.name, e.message.orEmpty())))
+            } finally {
+                activeProbeHandlers.remove(handler)
+            }
+        }
+
+        val results = arrayOfNulls<ProbeResult>(specs.size)
+        val lock = Any()
+        val remaining = AtomicInteger(specs.size)
+        specs.forEachIndexed { index, spec ->
+            ApplicationManager.getApplication().executeOnPooledThread {
+                val result = probe(spec)
+                synchronized(lock) { results[index] = result }
+                if (remaining.decrementAndGet() == 0) {
+                    ui {
+                        if (request != deviceRefreshGeneration) return@ui
+                        val completed = synchronized(lock) { results.filterNotNull() }
+                        val found = completed.flatMap { it.devices }
+                        val problems = completed.flatMap { it.problems }
+                        val previousId = (devices.selectedItem as? DeviceTarget)?.id
+                        devices.removeAllItems(); devices.addItem(DeviceTarget("", msg("device.auto"), DeviceKind.ANDROID))
+                        found.forEach(devices::addItem)
+                        found.firstOrNull { it.id == previousId }?.let { devices.selectedItem = it }
+                        probeDetails = problems.joinToString("\n\n")
+                        details.isVisible = problems.isNotEmpty()
+                        refreshing = false
+                        updateState()
+                    }
+                }
             }
         }
     }
@@ -447,5 +512,11 @@ class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayou
     private fun ui(action: () -> Unit) = ApplicationManager.getApplication().invokeLater {
         if (!disposed && !project.isDisposed) action()
     }
-    override fun dispose() { disposed = true; generation++ }
+    override fun dispose() {
+        disposed = true
+        generation++
+        deviceRefreshGeneration++
+        activeProbeHandlers.forEach { it.destroyProcess() }
+        activeProbeHandlers.clear()
+    }
 }
