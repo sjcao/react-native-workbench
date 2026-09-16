@@ -2,13 +2,17 @@
 
 # React Native Workbench Changelog
 
+## [1.0.2] - 2026-09-16
+
+- Fixed device discovery getting stuck when a probe executable cannot start.
+- Added macOS default Android SDK discovery for IDEs launched outside a shell.
+- Added a bounded timeout to iOS physical-device discovery.
+
 ## [1.0.1] - 2026-09-13
 
 - Improved React Native app discovery and nested project handling.
 - Improved device output parsing and runtime error handling.
 - Improved console session behavior and related test coverage.
-- Prevented device discovery from getting stuck when a probe executable cannot start.
-- Added macOS default Android SDK discovery and bounded iOS physical-device probing.
 
 ## [1.0.0] - 2026-09-10
 

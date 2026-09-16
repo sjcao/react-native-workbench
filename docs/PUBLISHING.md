@@ -1,7 +1,7 @@
 # senjucao 发布指南
 
 新版名称：React Native Workbench
-版本：1.0.0
+版本：1.0.2
 作者：senjucao
 插件 ID：dev.senjucao.reactnativeworkbench
 
@@ -27,7 +27,7 @@
 3. 在 macOS 真机验证 iOS 模拟器、实体设备及 release 构建。
 4. 用新版真实 IDE 界面截图替换原有 docs/screenshots/screenshot_1.png；原截图属于旧界面，不用于新版 listing。
 5. 在个人账号创建/选择 senjucao 发布者，填写真实支持邮箱、仓库地址和隐私政策链接。这些地址尚未提供，代码未虚构。
-6. 首次在 Marketplace 手动上传 build/distributions/react-native-workbench-1.0.0.zip，完成分类、说明和审核。此工作区未执行发布。
+6. 首次在 Marketplace 手动上传 build/distributions/react-native-workbench-1.0.2.zip，完成分类、说明和审核。此工作区未执行发布。
 
 后续自动发布使用 JETBRAINS_MARKETPLACE_TOKEN；签名使用 JETBRAINS_CERTIFICATE_CHAIN、JETBRAINS_PRIVATE_KEY、JETBRAINS_PRIVATE_KEY_PASSWORD 环境变量。不要提交凭据。
 

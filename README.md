@@ -1,6 +1,6 @@
 # React Native Workbench
 
-Version **1.0.0**, maintained by **senjucao**.
+Version **1.0.2**, maintained by **senjucao**.
 
 A JetBrains IDE workbench for React Native CLI development: a compact icon toolbar, automatic app discovery, separate session consoles, stop controls, Metro cache reset, release builds and environment diagnostics. Adapts to IDE light and dark themes.
 
@@ -39,7 +39,7 @@ Use JDK 21:
 
 An installed IDE can be used with `-PlocalIdePath="D:/Program Files/Android/Android Studio"`. The local platform may be newer than the minimum supported IDE; verify compatibility before publishing.
 
-Output: `build/distributions/react-native-workbench-1.0.0.zip`.
+Output: `build/distributions/react-native-workbench-1.0.2.zip`.
 See [publishing guide](docs/PUBLISHING.md) for release preparation.
 
 ## Attribution
