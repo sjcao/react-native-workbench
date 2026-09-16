@@ -69,10 +69,15 @@ object ReactNativeCommandRunner {
             windows -> File(environment["LOCALAPPDATA"] ?: File(userDirectory, "AppData/Local").path, "Android/Sdk")
             else -> File(userDirectory, "Android/Sdk")
         }
-        return (sequenceOf(environment["ANDROID_HOME"], environment["ANDROID_SDK_ROOT"])
-            .filterNotNull().filter { it.isNotBlank() }.map(::File) + sequenceOf(defaultSdk))
-            .map { File(it, "platform-tools/$executable") }
-            .firstOrNull { it.isFile }?.absolutePath ?: executable
+        val sdkRoots = ArrayList<File>()
+        environment["ANDROID_HOME"]?.takeIf { it.isNotBlank() }?.let(::File)?.let(sdkRoots::add)
+        environment["ANDROID_SDK_ROOT"]?.takeIf { it.isNotBlank() }?.let(::File)?.let(sdkRoots::add)
+        sdkRoots.add(defaultSdk)
+        for (sdkRoot in sdkRoots) {
+            val candidate = File(sdkRoot, "platform-tools/$executable")
+            if (candidate.isFile) return candidate.absolutePath
+        }
+        return executable
     }
 
     fun runSimctlListDevices(): GeneralCommandLine =

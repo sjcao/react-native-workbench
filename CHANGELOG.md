@@ -2,6 +2,10 @@
 
 # React Native Workbench Changelog
 
+## [1.0.3] - 2026-09-16
+
+- Restored compatibility with IDEs using the Kotlin runtime bundled with 2024.3 and 2025.1.
+
 ## [1.0.2] - 2026-09-16
 
 - Fixed device discovery getting stuck when a probe executable cannot start.
