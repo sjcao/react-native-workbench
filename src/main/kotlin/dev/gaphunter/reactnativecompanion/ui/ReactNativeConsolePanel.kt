@@ -23,7 +23,11 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import javax.swing.*
 
-class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayout()), Disposable {
+class ReactNativeConsolePanel internal constructor(
+    private val project: Project,
+    private val createProbe: (com.intellij.execution.configurations.GeneralCommandLine) -> CapturingProcessHandler,
+) : JPanel(BorderLayout()), Disposable {
+    constructor(project: Project) : this(project, ::CapturingProcessHandler)
     @Volatile private var disposed = false
     private val preferences = PropertiesComponent.getInstance(project)
     private val language = "auto"
@@ -459,9 +463,10 @@ class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayou
 
         fun probe(spec: ProbeSpec): ProbeResult {
             if (disposed) return ProbeResult(emptyList(), emptyList())
-            val handler = CapturingProcessHandler(spec.command)
-            activeProbeHandlers.add(handler)
+            var handler: CapturingProcessHandler? = null
             try {
+                handler = createProbe(spec.command)
+                activeProbeHandlers.add(handler)
                 if (disposed) {
                     handler.destroyProcess()
                     return ProbeResult(emptyList(), emptyList())
@@ -478,7 +483,7 @@ class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayou
             } catch (e: Exception) {
                 return ProbeResult(emptyList(), listOf(msg("probe.error", spec.name, e.message.orEmpty())))
             } finally {
-                activeProbeHandlers.remove(handler)
+                handler?.let { activeProbeHandlers.remove(it) }
             }
         }
 
@@ -487,22 +492,25 @@ class ReactNativeConsolePanel(private val project: Project) : JPanel(BorderLayou
         val remaining = AtomicInteger(specs.size)
         specs.forEachIndexed { index, spec ->
             ApplicationManager.getApplication().executeOnPooledThread {
-                val result = probe(spec)
-                synchronized(lock) { results[index] = result }
-                if (remaining.decrementAndGet() == 0) {
-                    ui {
-                        if (request != deviceRefreshGeneration) return@ui
-                        val completed = synchronized(lock) { results.filterNotNull() }
-                        val found = completed.flatMap { it.devices }
-                        val problems = completed.flatMap { it.problems }
-                        val previousId = (devices.selectedItem as? DeviceTarget)?.id
-                        devices.removeAllItems(); devices.addItem(DeviceTarget("", msg("device.auto"), DeviceKind.ANDROID))
-                        found.forEach(devices::addItem)
-                        found.firstOrNull { it.id == previousId }?.let { devices.selectedItem = it }
-                        probeDetails = problems.joinToString("\n\n")
-                        details.isVisible = problems.isNotEmpty()
-                        refreshing = false
-                        updateState()
+                try {
+                    val result = probe(spec)
+                    synchronized(lock) { results[index] = result }
+                } finally {
+                    if (remaining.decrementAndGet() == 0) {
+                        ui {
+                            if (request != deviceRefreshGeneration) return@ui
+                            val completed = synchronized(lock) { results.filterNotNull() }
+                            val found = completed.flatMap { it.devices }
+                            val problems = completed.flatMap { it.problems }
+                            val previousId = (devices.selectedItem as? DeviceTarget)?.id
+                            devices.removeAllItems(); devices.addItem(DeviceTarget("", msg("device.auto"), DeviceKind.ANDROID))
+                            found.forEach(devices::addItem)
+                            found.firstOrNull { it.id == previousId }?.let { devices.selectedItem = it }
+                            probeDetails = problems.joinToString("\n\n")
+                            details.isVisible = problems.isNotEmpty()
+                            refreshing = false
+                            updateState()
+                        }
                     }
                 }
             }

@@ -57,10 +57,21 @@ object ReactNativeCommandRunner {
     fun runAdbDevices(): GeneralCommandLine =
         GeneralCommandLine(adbExecutable(), "devices").withCharset(Charsets.UTF_8)
 
-    private fun adbExecutable(): String {
-        val executable = if (SystemInfo.isWindows) "adb.exe" else "adb"
-        return sequenceOf(System.getenv("ANDROID_HOME"), System.getenv("ANDROID_SDK_ROOT"))
-            .filterNotNull().map { File(it, "platform-tools/$executable") }
+    internal fun adbExecutable(
+        environment: Map<String, String> = System.getenv(),
+        userDirectory: String = System.getProperty("user.home"),
+        windows: Boolean = SystemInfo.isWindows,
+        mac: Boolean = SystemInfo.isMac,
+    ): String {
+        val executable = if (windows) "adb.exe" else "adb"
+        val defaultSdk = when {
+            mac -> File(userDirectory, "Library/Android/sdk")
+            windows -> File(environment["LOCALAPPDATA"] ?: File(userDirectory, "AppData/Local").path, "Android/Sdk")
+            else -> File(userDirectory, "Android/Sdk")
+        }
+        return (sequenceOf(environment["ANDROID_HOME"], environment["ANDROID_SDK_ROOT"])
+            .filterNotNull().filter { it.isNotBlank() }.map(::File) + sequenceOf(defaultSdk))
+            .map { File(it, "platform-tools/$executable") }
             .firstOrNull { it.isFile }?.absolutePath ?: executable
     }
 
@@ -68,7 +79,7 @@ object ReactNativeCommandRunner {
         GeneralCommandLine("xcrun", "simctl", "list", "devices", "--json").withCharset(Charsets.UTF_8)
 
     fun runXcdeviceList(): GeneralCommandLine =
-        GeneralCommandLine("xcrun", "xcdevice", "list").withCharset(Charsets.UTF_8)
+        GeneralCommandLine("xcrun", "xcdevice", "list", "--timeout=5").withCharset(Charsets.UTF_8)
 
     private fun npxExecutable(): String = if (SystemInfo.isWindows) "npx.cmd" else "npx"
 }

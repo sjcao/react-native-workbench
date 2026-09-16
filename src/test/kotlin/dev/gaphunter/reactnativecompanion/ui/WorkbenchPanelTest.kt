@@ -12,6 +12,41 @@ import javax.swing.SwingUtilities
 
 /** Exercise actual Swing components, including overflow and accessible icon controls. */
 class WorkbenchPanelTest : BasePlatformTestCase() {
+    fun testMissingProbeExecutableFinishesRefreshAndAllowsRetry() {
+        val check = Runnable {
+            val missing = java.io.File(project.basePath, "missing-probe-" + java.util.UUID.randomUUID()).absolutePath
+            val panel = ReactNativeConsolePanel(project) {
+                com.intellij.execution.process.CapturingProcessHandler(
+                    com.intellij.execution.configurations.GeneralCommandLine(missing)
+                )
+            }
+            try {
+                fun descendants(component: Component): List<Component> = listOf(component) +
+                    if (component is Container) component.components.flatMap { descendants(it) } else emptyList()
+                val buttons = descendants(panel).filterIsInstance<JButton>()
+                val refresh = buttons.single {
+                    it.accessibleContext.accessibleName == WorkbenchBundle.message("auto", "device.refresh")
+                }
+                val details = buttons.single {
+                    it.accessibleContext.accessibleName == WorkbenchBundle.message("auto", "details.show")
+                }
+                fun awaitRefresh() {
+                    val deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+                    while (!refresh.isEnabled && System.nanoTime() < deadline) {
+                        com.intellij.testFramework.PlatformTestUtil.dispatchAllInvocationEventsInIdeEventQueue()
+                        Thread.sleep(10)
+                    }
+                    assertTrue("A missing executable must not leave discovery running", refresh.isEnabled)
+                    assertTrue("Probe errors must remain visible", details.isVisible)
+                }
+                awaitRefresh()
+                refresh.doClick()
+                awaitRefresh()
+            } finally { Disposer.dispose(panel) }
+        }
+        if (SwingUtilities.isEventDispatchThread()) check.run() else SwingUtilities.invokeAndWait(check)
+    }
+
     fun testToolbarAdaptsAndIconsHaveAccessibleNames() {
         val check = Runnable {
             val panel = ReactNativeConsolePanel(project)
