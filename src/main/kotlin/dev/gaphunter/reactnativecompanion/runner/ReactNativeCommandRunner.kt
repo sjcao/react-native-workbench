@@ -7,6 +7,7 @@ import com.intellij.execution.process.KillableProcessHandler
 import com.intellij.execution.ui.ConsoleView
 import com.intellij.openapi.util.SystemInfo
 import java.io.File
+import java.nio.file.Files
 
 /**
  * The real complaint this plugin exists to fix (verdict_console.md,
@@ -19,6 +20,14 @@ import java.io.File
  * this class from the UI thread regardless.
  */
 object ReactNativeCommandRunner {
+    private val androidCliBridge: File by lazy {
+        val bridge = Files.createTempFile("rn-workbench-android-", ".cjs").toFile()
+        ReactNativeCommandRunner::class.java.getResourceAsStream("/runner/android-cli.cjs")!!.use { input ->
+            bridge.outputStream().use { input.copyTo(it) }
+        }
+        bridge.deleteOnExit()
+        bridge
+    }
 
     /**
      * [envFile], when non-null, is set as the ENVFILE environment
@@ -33,10 +42,20 @@ object ReactNativeCommandRunner {
     }
 
     fun create(workDirectory: String, args: List<String>, envFile: String? = null): OSProcessHandler {
-        var commandLine = GeneralCommandLine(npxExecutable())
-            .withParameters(listOf("--no-install", "react-native") + args)
+        return createProcess(commandLine(workDirectory, args, envFile))
+    }
+
+    fun createProcess(commandLine: GeneralCommandLine): OSProcessHandler =
+        KillableProcessHandler(commandLine).apply { setShouldKillProcessSoftly(false) }
+
+    internal fun commandLine(workDirectory: String, args: List<String>, envFile: String? = null): GeneralCommandLine {
+        val useBridge = args.firstOrNull() == "run-android" && "--help" !in args &&
+            args.any { it == "--device" || it == "--deviceId" || it.startsWith("--device=") || it.startsWith("--deviceId=") }
+        var commandLine = (if (useBridge) GeneralCommandLine("node").withParameters(listOf(androidCliBridge.absolutePath) + args)
+            else GeneralCommandLine(npxExecutable()).withParameters(listOf("--no-install", "react-native") + args))
             .withWorkDirectory(File(workDirectory))
             .withCharset(Charsets.UTF_8)
+        if (useBridge) commandLine = commandLine.withEnvironment("RN_WORKBENCH_ADB", adbExecutable())
         if (envFile != null) {
             commandLine = commandLine.withEnvironment("ENVFILE", envFile)
         }
@@ -44,7 +63,7 @@ object ReactNativeCommandRunner {
             commandLine = commandLine.withEnvironment("REACT_TERMINAL", iosTerminal())
         }
 
-        return KillableProcessHandler(commandLine).apply { setShouldKillProcessSoftly(false) }
+        return commandLine
     }
 
     /**

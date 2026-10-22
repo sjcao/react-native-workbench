@@ -297,20 +297,46 @@ class ReactNativeConsolePanel internal constructor(
         choices.accessibleContext.accessibleName = msg("environment.label")
         val center = JPanel(GridLayout(0, 1, 0, 8))
         center.add(JPanel(BorderLayout(8, 0)).apply { add(JLabel(msg("environment.label")), BorderLayout.WEST); add(choices) })
+        val androidSettings = app?.let { androidSettings(it.directory) } ?: AndroidRunSettings()
+        val mode = JTextField(androidSettings.mode, 24)
+        val applicationId = JTextField(androidSettings.applicationId, 24)
+        val mainActivity = JTextField(androidSettings.mainActivity, 24)
+        listOf("android.mode" to mode, "android.applicationId" to applicationId, "android.mainActivity" to mainActivity).forEach { (key, field) ->
+            field.accessibleContext.accessibleName = msg(key)
+            center.add(JPanel(BorderLayout(8, 0)).apply { add(JLabel(msg(key)), BorderLayout.WEST); add(field) })
+        }
+        center.add(JLabel(msg("android.settings.hint")))
         content.add(center, BorderLayout.CENTER)
         content.add(JPanel(FlowLayout(FlowLayout.RIGHT)).apply {
             add(JButton(msg("cancel")).apply { addActionListener { dialog.dispose() } })
             add(JButton(msg("save")).apply { addActionListener {
                 app?.let { selected ->
+                    val androidOverrides = AndroidRunSettings(mode.text.trim(), applicationId.text.trim(), mainActivity.text.trim())
+                    try {
+                        androidOverrides.validate()
+                    } catch (e: IllegalArgumentException) {
+                        Messages.showWarningDialog(project, e.message.orEmpty(), msg("settings"))
+                        return@addActionListener
+                    }
                     env = (choices.selectedItem as? String)?.takeIf { it in profiles }
                     val key = AppEnvironment.key(selected.directory)
                     if (env == null) preferences.unsetValue(key) else preferences.setValue(key, env)
+                    mapOf("mode" to androidOverrides.mode, "applicationId" to androidOverrides.applicationId, "mainActivity" to androidOverrides.mainActivity).forEach { (field, value) ->
+                        val androidKey = AndroidRunSettings.key(selected.directory, field)
+                        if (value.isEmpty()) preferences.unsetValue(androidKey) else preferences.setValue(androidKey, value)
+                    }
                 }
                 updateState(); dialog.dispose()
             } })
         }, BorderLayout.SOUTH)
         dialog.contentPane = content; dialog.pack(); dialog.setLocationRelativeTo(this); dialog.isVisible = true
     }
+
+    private fun androidSettings(directory: String) = AndroidRunSettings(
+        preferences.getValue(AndroidRunSettings.key(directory, "mode")).orEmpty(),
+        preferences.getValue(AndroidRunSettings.key(directory, "applicationId")).orEmpty(),
+        preferences.getValue(AndroidRunSettings.key(directory, "mainActivity")).orEmpty(),
+    )
 
     private fun clearCurrentSession() {
         sessions.values.firstOrNull { it.panel == tabs.selectedComponent }?.console?.clear()
@@ -389,16 +415,25 @@ class ReactNativeConsolePanel internal constructor(
         tabs.addTab("${selected.name} · $title", session.panel); tabs.selectedComponent = session.panel
         updateState()
         val environment = env
-        val command = DeviceTargetArguments.forCommand(args, target)
+        val androidOverrides = androidSettings(selected.directory)
         ApplicationManager.getApplication().executeOnPooledThread {
             try {
                 require(AppDiscovery.inspect(File(selected.directory)) != null) { msg("directory.stale") }
                 require(environment == null || File(selected.directory, environment).isFile) { msg("environment.stale") }
                 if (disposed || session.cancelled) { session.complete(msg("session.cancelled")); return@executeOnPooledThread }
+                val command = if (args.first() == "run-android") {
+                    session.console.print(msg("android.preparing"), ConsoleViewContentType.SYSTEM_OUTPUT)
+                    AndroidLaunchPreparation.prepare(selected.directory, androidOverrides, target, environment) { line, showOutput ->
+                        runPreparation(session, line, showOutput)
+                    }
+                } else DeviceTargetArguments.forCommand(args, target)
+                if (disposed || session.cancelled) { session.complete(msg("session.cancelled")); return@executeOnPooledThread }
                 val handler = ReactNativeCommandRunner.create(selected.directory, command, environment)
                 session.handler = handler
                 handler.addProcessListener(object : ProcessListener {
-                    override fun processTerminated(event: ProcessEvent) { session.complete(msg("session.exited", event.exitCode)) }
+                    override fun processTerminated(event: ProcessEvent) {
+                        session.complete(if (session.cancelled) msg("session.cancelled") else msg("session.exited", event.exitCode))
+                    }
                 })
                 if (disposed || session.cancelled) {
                     handler.startNotify(); handler.destroyProcess(); return@executeOnPooledThread
@@ -409,10 +444,39 @@ class ReactNativeConsolePanel internal constructor(
                 handler.startNotify()
                 if (disposed || session.cancelled) handler.destroyProcess()
             } catch (e: Exception) {
-                if (!disposed) session.console.print(msg("console.failed", e.message.orEmpty()), ConsoleViewContentType.ERROR_OUTPUT)
-                session.complete(msg("session.failed"))
+                if (!disposed && !session.cancelled) session.console.print(msg("console.failed", e.message.orEmpty()), ConsoleViewContentType.ERROR_OUTPUT)
+                session.complete(if (session.cancelled || disposed) msg("session.cancelled") else msg("session.failed"))
             }
         }
+    }
+
+    /** All preparation processes use the same stop/disposal path as the final CLI invocation. */
+    private fun runPreparation(
+        session: Session,
+        command: com.intellij.execution.configurations.GeneralCommandLine,
+        showOutput: Boolean,
+    ): String {
+        check(!disposed && !session.cancelled) { msg("session.cancelled") }
+        val handler = ReactNativeCommandRunner.createProcess(command)
+        session.handler = handler
+        val output = CapturingProcessAdapter()
+        handler.addProcessListener(output)
+        if (showOutput) {
+            session.console.print("${command.commandLineString}\n", ConsoleViewContentType.SYSTEM_OUTPUT)
+            session.console.attachToProcess(handler)
+        }
+        handler.startNotify()
+        if (disposed || session.cancelled) handler.destroyProcess()
+        val timeout = if (showOutput) 30 * 60 * 1000L else 60_000L
+        if (!handler.waitFor(timeout)) {
+            handler.destroyProcess()
+            error(msg("android.prepare.timeout"))
+        }
+        check(!disposed && !session.cancelled) { msg("session.cancelled") }
+        check(handler.exitCode == 0) {
+            msg("android.prepare.failed", handler.exitCode ?: -1, (output.output.stderr + output.output.stdout).takeLast(4000))
+        }
+        return output.output.stdout
     }
 
     private fun refreshDevices() {

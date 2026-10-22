@@ -2,6 +2,15 @@
 
 # React Native Workbench Changelog
 
+## [1.0.4] - 2026-10-22
+
+- Fixed Android launch failures caused by Debug/flavor application IDs differing from the CLI's inferred base package.
+- Detect the selected variant's final application ID after a successful build; stop on missing or ambiguous output metadata.
+- Added per-app Android variant, full application ID and Activity settings, with support for legacy CLI option names.
+- Android preparation shares session cancellation and process-tree termination with the launch command.
+- Use adb's non-streaming transport for explicitly selected Android devices while retaining the project-local CLI's build, Metro and launch behavior.
+- Validate the distributable ZIP and every nested JAR (CRC, paths, structure, plugin ID and version) before verification and publication.
+
 ## [1.0.3] - 2026-09-16
 
 - Restored compatibility with IDEs using the Kotlin runtime bundled with 2024.3 and 2025.1.
